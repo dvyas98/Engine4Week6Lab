@@ -11,7 +11,14 @@ namespace Character
         [SerializeField] private float WalkSpeed;
         [SerializeField] private float RunSpeed;
         [SerializeField] private float JumpForce;
-        
+
+        [SerializeField] private LayerMask JumpLayerMask;
+        [SerializeField] private float JumpThreshold = 0.1f;
+        [SerializeField] private float JumpLandingCheckDelay = 0.1f;
+
+
+        [SerializeField] private float MoveDirectionBuffer = 2f;
+
         private Vector2 InputVector = Vector2.zero;
         private Vector3 MoveDirection = Vector3.zero;
         
@@ -24,7 +31,9 @@ namespace Character
         //Reference 
         private Transform PlayerTransform;
 
-        
+        private Vector3 NextPositionCheck;
+
+
         //Animator Hashes
         private readonly int MovementXHash = Animator.StringToHash("MovementX");
         private readonly int MovementZHash = Animator.StringToHash("MovementZ");
@@ -47,18 +56,32 @@ namespace Character
         private void Update()
         {
             if (PlayerController.IsJumping) return;
-            
-            if (!(InputVector.magnitude > 0))  MoveDirection = Vector3.zero;
-            
+
+
             MoveDirection = PlayerTransform.forward * InputVector.y + PlayerTransform.right * InputVector.x;
 
             float currentSpeed = PlayerController.IsRunning ? RunSpeed : WalkSpeed;
 
             Vector3 movementDirection = MoveDirection * (currentSpeed * Time.deltaTime);
 
-            navMeshAgent.Move(movementDirection);
+          NextPositionCheck = transform.position + MoveDirection * MoveDirectionBuffer;
 
-            //PlayerTransform.position += movementDirection;
+           if(NavMesh.SamplePosition(NextPositionCheck, out NavMeshHit hit, 1f, NavMesh.AllAreas))
+            {
+                transform.position += movementDirection;
+            }
+
+
+        }
+
+        private void OnCollisionEnter(Collision other)
+        {
+            if (!other.gameObject.CompareTag("Ground") && !PlayerController.IsJumping) return;
+
+
+            //navMeshAgent.enabled = true;
+            PlayerController.IsJumping = false;
+            PlayerAnimator.SetBool(IsJumpingHash, false);
         }
 
         public void OnMovement(InputValue value)
@@ -79,25 +102,42 @@ namespace Character
         {
             if (PlayerController.IsJumping) return;
 
-            PlayerController.IsJumping = true;
-            PlayerAnimator.SetBool(IsJumpingHash, true);
+
+            //navMeshAgent.isStopped = true;
+            //navMeshAgent.enabled = false;
+
+
+
+            PlayerController.IsJumping = button.isPressed;
+            PlayerAnimator.SetBool(IsJumpingHash, button.isPressed);
+            PlayerRigidbody.AddForce((PlayerTransform.up + MoveDirection)* JumpForce, ForceMode.Impulse);
             navMeshAgent.enabled = false;
 
-            Invoke(nameof(Jump),0.1f);
-          
+            //Invoke(nameof(Jump),0.1f);
+            //InvokeRepeating(nameof(LandingCheck), JumpLandingCheckDelay, 0.1f);
         }
+
+        private void LandingCheck()
+        {
+            if (!Physics.Raycast(transform.position, -transform.up, out RaycastHit hit, 100f, JumpLayerMask)) return;
+            {
+                Debug.Log(hit.distance);
+                if (!(hit.distance < JumpThreshold)||  !PlayerController.IsJumping ) return;
+               
+                    navMeshAgent.enabled = true;
+                    navMeshAgent.isStopped = false;
+                    PlayerController.IsJumping = false;
+                    PlayerAnimator.SetBool(IsJumpingHash, false);
+
+                    CancelInvoke(nameof(LandingCheck));
+                
+            }
+        }
+
         public void Jump()
         {
             PlayerRigidbody.AddForce((transform.up + MoveDirection) * JumpForce, ForceMode.Impulse);
         }
-        private void OnCollisionEnter(Collision other)
-        {
-            if (!other.gameObject.CompareTag("Ground") && !PlayerController.IsJumping) return;
 
-
-            navMeshAgent.enabled = true;
-            PlayerController.IsJumping = false;
-            PlayerAnimator.SetBool(IsJumpingHash, false);
-        }
     }
 }
